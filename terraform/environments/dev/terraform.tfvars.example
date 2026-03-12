@@ -1,0 +1,10 @@
+# Copy this file to terraform.tfvars and fill in your values
+
+environment = "dev"
+aws_region  = "us-east-1"
+
+# Get your IP: curl ifconfig.me
+your_ip = "1.2.3.4/32"  # Replace with your actual IP
+
+# SSH key name (create in AWS Console first)
+ssh_key_name = "hbo-stream-key"  # Replace with your key pair name
