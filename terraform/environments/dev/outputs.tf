@@ -61,7 +61,7 @@ output "application_url" {
 # Summary
 output "deployment_summary" {
   description = "Quick reference for your deployment"
-  value = <<-EOT
+  value       = <<-EOT
   
   ========================================
   HBO-STREAM DEPLOYMENT SUMMARY

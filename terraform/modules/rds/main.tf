@@ -46,18 +46,23 @@ resource "aws_db_subnet_group" "main" {
   })
 }
 
-# Random Password
+# Random Password (FIXED - RDS-compatible characters only)
 resource "random_password" "db_password" {
   length  = 32
   special = true
+  override_special = "!#$%&*()-_=+[]{}:?"  # Removed @, ", /, and space
 }
 
 # Store in Secrets Manager
 resource "aws_secretsmanager_secret" "db_password" {
-  name        = "hbo-stream/${var.environment}/db-password"
+  name        = "hbo-stream-db-pass-${var.environment}-${random_id.suffix.hex}"
   description = "RDS PostgreSQL password"
 
   tags = local.common_tags
+}
+
+resource "random_id" "suffix" {
+  byte_length = 4
 }
 
 resource "aws_secretsmanager_secret_version" "db_password" {
@@ -78,8 +83,8 @@ resource "aws_db_instance" "main" {
 
   engine               = "postgres"
   engine_version       = "16.4"
-  instance_class       = "db.t3.micro"  # FREE TIER
-  allocated_storage    = 20              # FREE TIER limit
+  instance_class       = "db.t3.micro"
+  allocated_storage    = 20
   storage_type         = "gp3"
   storage_encrypted    = true
 
@@ -92,10 +97,10 @@ resource "aws_db_instance" "main" {
   publicly_accessible    = false
   port                   = 5432
 
-  backup_retention_period = 7
+  backup_retention_period = 1
   backup_window           = "03:00-04:00"
   maintenance_window      = "sun:04:00-sun:05:00"
-  multi_az                = false  # Single AZ for free tier
+  multi_az                = false
 
   skip_final_snapshot       = true
   deletion_protection       = false

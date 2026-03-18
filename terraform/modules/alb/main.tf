@@ -1,3 +1,4 @@
+
 terraform {
   required_version = ">= 1.6"
   required_providers {
@@ -16,8 +17,9 @@ variable "vpc_id" {
   type = string
 }
 
-variable "subnet_id" {
-  type = string
+variable "subnet_ids" {
+  type        = list(string)
+  description = "List of subnet IDs for ALB (minimum 2 in different AZs)"
 }
 
 variable "security_group_id" {
@@ -42,11 +44,10 @@ resource "aws_lb" "main" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [var.security_group_id]
-  subnets            = [var.subnet_id]  # Single subnet for free tier
+  subnets            = var.subnet_ids  # Now accepts list
 
   enable_deletion_protection = false
   enable_http2              = true
-  enable_cross_zone_load_balancing = true
 
   tags = merge(local.common_tags, {
     Name = "hbo-stream-alb-${var.environment}"
@@ -114,7 +115,7 @@ resource "aws_lb_target_group_attachment" "frontend" {
   port             = 3000
 }
 
-# HTTP Listener (redirect to HTTPS in production)
+# HTTP Listener
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
@@ -142,3 +143,4 @@ resource "aws_lb_listener_rule" "backend" {
     }
   }
 }
+

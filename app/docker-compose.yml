@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # PostgreSQL connection is external (RDS)
+  
+  # Backend API (FastAPI)
+  backend:
+    build: ./backend
+    container_name: hbo-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SECRET_KEY=${SECRET_KEY}
+      - ENVIRONMENT=production
+    networks:
+      - hbo-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (React)
+  frontend:
+    build: ./frontend
+    container_name: hbo-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_CLOUDFRONT_URL=${CLOUDFRONT_URL}
+    networks:
+      - hbo-network
+    depends_on:
+      - backend
+
+  # Nginx Reverse Proxy
+  nginx:
+    build: ./nginx
+    container_name: hbo-nginx
+    restart: always
+    ports:
+      - "80:80"
+    networks:
+      - hbo-network
+    depends_on:
+      - frontend
+      - backend
+
+networks:
+  hbo-network:
+    driver: bridge

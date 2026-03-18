@@ -48,10 +48,10 @@ module "ec2" {
   source = "../../modules/ec2"
 
   environment       = local.environment
-  subnet_id         = module.vpc.public_subnet_id
+  subnet_id         = module.vpc.public_subnet_ids[0]  # Use first public subnet
   security_group_id = module.security_groups.ec2_security_group_id
   key_name          = var.ssh_key_name
-  instance_type     = "t3.micro"  # FREE TIER
+  instance_type     = "t3.micro"
 }
 
 # RDS Module
@@ -77,9 +77,10 @@ module "alb" {
 
   environment       = local.environment
   vpc_id            = module.vpc.vpc_id
-  subnet_id         = module.vpc.public_subnet_id
+  subnet_ids        = module.vpc.public_subnet_ids  # FIXED: Now passes list of both subnets
   security_group_id = module.security_groups.alb_security_group_id
   ec2_instance_id   = module.ec2.instance_id
 
   depends_on = [module.ec2]
 }
+

@@ -45,23 +45,36 @@ resource "aws_internet_gateway" "main" {
   })
 }
 
-# Public Subnet (EC2 lives here)
-resource "aws_subnet" "public" {
+# Public Subnet 1 (us-east-1a) - CHANGED CIDR
+resource "aws_subnet" "public_1" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
+  cidr_block              = "10.0.10.0/24"  # Changed from 10.0.1.0/24
   availability_zone       = "us-east-1a"
   map_public_ip_on_launch = true
 
   tags = merge(local.common_tags, {
-    Name = "hbo-stream-public-${var.environment}"
+    Name = "hbo-stream-public-1-${var.environment}"
     Type = "Public"
   })
 }
 
-# Database Subnet 1
+# Public Subnet 2 (us-east-1b) - CHANGED CIDR
+resource "aws_subnet" "public_2" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.20.0/24"  # Changed from 10.0.2.0/24
+  availability_zone       = "us-east-1b"
+  map_public_ip_on_launch = true
+
+  tags = merge(local.common_tags, {
+    Name = "hbo-stream-public-2-${var.environment}"
+    Type = "Public"
+  })
+}
+
+# Database Subnet 1 (us-east-1a) - CHANGED CIDR
 resource "aws_subnet" "database_1" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.11.0/24"
+  cidr_block        = "10.0.50.0/24"  # Changed from 10.0.11.0/24
   availability_zone = "us-east-1a"
 
   tags = merge(local.common_tags, {
@@ -70,10 +83,10 @@ resource "aws_subnet" "database_1" {
   })
 }
 
-# Database Subnet 2 (RDS requires 2 subnets minimum)
+# Database Subnet 2 (us-east-1b) - CHANGED CIDR
 resource "aws_subnet" "database_2" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.12.0/24"
+  cidr_block        = "10.0.60.0/24"  # Changed from 10.0.12.0/24
   availability_zone = "us-east-1b"
 
   tags = merge(local.common_tags, {
@@ -82,7 +95,7 @@ resource "aws_subnet" "database_2" {
   })
 }
 
-# Route Table for Public Subnet
+# Route Table for Public Subnets
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -96,12 +109,17 @@ resource "aws_route_table" "public" {
   })
 }
 
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
+resource "aws_route_table_association" "public_1" {
+  subnet_id      = aws_subnet.public_1.id
   route_table_id = aws_route_table.public.id
 }
 
-# Route Table for Database Subnets (no internet)
+resource "aws_route_table_association" "public_2" {
+  subnet_id      = aws_subnet.public_2.id
+  route_table_id = aws_route_table.public.id
+}
+
+# Route Table for Database Subnets
 resource "aws_route_table" "database" {
   vpc_id = aws_vpc.main.id
 

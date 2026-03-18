@@ -74,13 +74,17 @@ resource "aws_s3_bucket_cors_configuration" "videos" {
   }
 }
 
-# Lifecycle Policy (FREE TIER optimization)
+# Lifecycle Policy (FIXED)
 resource "aws_s3_bucket_lifecycle_configuration" "videos" {
   bucket = aws_s3_bucket.videos.id
 
   rule {
     id     = "delete-old-versions"
     status = "Enabled"
+
+    filter {
+      prefix = ""
+    }
 
     noncurrent_version_expiration {
       noncurrent_days = 30
@@ -90,6 +94,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "videos" {
   rule {
     id     = "abort-incomplete-uploads"
     status = "Enabled"
+
+    filter {
+      prefix = ""
+    }
 
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
@@ -138,7 +146,7 @@ resource "aws_cloudfront_distribution" "videos" {
     compress               = true
   }
 
-  price_class = "PriceClass_100"  # USA, Canada, Europe only (cheapest)
+  price_class = "PriceClass_100"
 
   restrictions {
     geo_restriction {
