@@ -88,19 +88,21 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint for load balancer"""
+    db = SessionLocal()
     try:
         # Test database connection
-        db = SessionLocal()
         from sqlalchemy import text
-db.execute(text("SELECT 1"))
-        db.close()
+        db.execute(text("SELECT 1"))
         return {
             "status": "healthy",
             "database": "connected",
             "timestamp": datetime.utcnow().isoformat()
         }
     except Exception as e:
+        # This is the 'except' block that was missing or misaligned
         raise HTTPException(status_code=503, detail=f"Database connection failed: {str(e)}")
+    finally:
+        db.close()
 
 @app.get("/api/videos", response_model=List[VideoResponse])
 async def get_videos(
