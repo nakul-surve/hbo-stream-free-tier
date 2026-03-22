@@ -1,11 +1,9 @@
 version: '3.8'
 
 services:
-  # PostgreSQL connection is external (RDS)
-  
-  # Backend API (FastAPI)
+  # Backend API (FastAPI) using ECR Image
   backend:
-    build: ./backend
+    image: ${ECR_REGISTRY}/hbo-stream-backend:${IMAGE_TAG:-latest}
     container_name: hbo-backend
     restart: always
     ports:
@@ -22,17 +20,16 @@ services:
       timeout: 10s
       retries: 3
 
-  # Frontend (React)
+  # Frontend (React) using ECR Image
   frontend:
-    build: ./frontend
+    image: ${ECR_REGISTRY}/hbo-stream-frontend:${IMAGE_TAG:-latest}
     container_name: hbo-frontend
     restart: always
     ports:
       - "3000:80"
     environment:
-      # Change localhost to the backend service name for internal Docker communication
       - REACT_APP_API_URL=http://backend:8000
-      - REACT_APP_CLOUDFRONT_URL=${CLOUDFRONT_URL}
+      - REACT_APP_CLOUDFRONT_URL=${REACT_APP_CLOUDFRONT_URL}
     networks:
       - hbo-network
     depends_on:

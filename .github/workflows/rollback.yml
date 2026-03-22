@@ -1,0 +1,86 @@
+name: Rollback Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to rollback to (git SHA or "previous")'
+        required: true
+        default: 'previous'
+
+jobs:
+  rollback:
+    name: Rollback to Previous Version
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Determine rollback tag
+        id: rollback-tag
+        run: |
+          INPUT_TAG="${{ github.event.inputs.image_tag }}"
+          if [ "$INPUT_TAG" == "previous" ]; then
+            # Get the second-latest tag (the one before the current 'latest')
+            TAG=$(aws ecr describe-images \
+              --repository-name hbo-stream-backend \
+              --query 'sort_by(imageDetails,& imagePushedAt)[-2].imageTags[0]' \
+              --output text)
+          else
+            TAG=$INPUT_TAG
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Rollback on EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.rollback-tag.outputs.tag }}
+        run: |
+          ssh -i ~/.ssh/id_rsa ubuntu@${EC2_HOST} << ROLLBACK
+            set -e
+            
+            # Navigate to your app directory
+            cd ~/app
+            
+            # 1. Login to ECR on the EC2 instance so it can pull images
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
+            
+            # 2. Use the TAG environment variable to pull and start
+            # This avoids breaking your docker-compose file with sed
+            export IMAGE_TAG=$TAG
+            
+            # Pull specific version
+            docker-compose -f docker-compose.prod.yml pull
+            
+            # Restart with that specific version
+            docker-compose -f docker-compose.prod.yml up -d
+            
+            # 3. Verify
+            sleep 20
+            if curl -sf http://localhost:8000/health > /dev/null; then
+              echo "✅ Rollback to $TAG successful"
+            else
+              echo "❌ Health check failed after rollback"
+              exit 1
+            fi
+          ROLLBACK

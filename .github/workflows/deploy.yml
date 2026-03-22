@@ -1,0 +1,357 @@
+name: Deploy HBO-Stream
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_BACKEND: hbo-stream-backend
+  ECR_REPOSITORY_FRONTEND: hbo-stream-frontend
+
+jobs:
+  # Job 1: Lint and Test
+  test:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          cd app/backend
+          pip install -r requirements.txt
+          pip install flake8 pytest
+
+      - name: Lint Python code
+        run: |
+          cd app/backend
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Node dependencies
+        run: |
+          cd app/frontend
+          npm ci
+
+      - name: Lint JavaScript code
+        run: |
+          cd app/frontend
+          npm run build
+
+  # Job 2: Security Scanning
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner (Backend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'app/backend'
+          format: 'sarif'
+          output: 'trivy-backend-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-backend-results.sarif'
+          category: 'backend'
+
+      - name: Run Trivy vulnerability scanner (Frontend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'app/frontend'
+          format: 'sarif'
+          output: 'trivy-frontend-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-frontend-results.sarif'
+          category: 'frontend'
+
+  # Job 3: Build and Push Docker Images
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    outputs:
+      backend-image: ${{ steps.build-backend.outputs.image }}
+      frontend-image: ${{ steps.build-frontend.outputs.image }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create ECR repositories if they don't exist
+        run: |
+          aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY_BACKEND }} || \
+          aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY_BACKEND }} --image-scanning-configuration scanOnPush=true
+          
+          aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY_FRONTEND }} || \
+          aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY_FRONTEND }} --image-scanning-configuration scanOnPush=true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Backend image
+        id: build-backend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cd app/backend
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG \
+            --tag $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest \
+            --push \
+            .
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build and push Frontend image
+        id: build-frontend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cd app/frontend
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG \
+            --tag $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest \
+            --push \
+            .
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Scan Backend image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.build-backend.outputs.image }}
+          format: 'sarif'
+          output: 'trivy-image-backend.sarif'
+
+      - name: Scan Frontend image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.build-frontend.outputs.image }}
+          format: 'sarif'
+          output: 'trivy-image-frontend.sarif'
+
+  # Job 4: Deploy to EC2
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get database credentials
+        id: get-db-creds
+        run: |
+          DB_SECRET=$(aws secretsmanager get-secret-value \
+            --secret-id ${{ secrets.RDS_SECRET_ARN }} \
+            --query SecretString \
+            --output text)
+          
+          DB_PASSWORD=$(echo $DB_SECRET | jq -r .password)
+          DB_HOST=$(echo $DB_SECRET | jq -r .host)
+          
+          echo "::add-mask::$DB_PASSWORD"
+          echo "db-password=$DB_PASSWORD" >> $GITHUB_OUTPUT
+          echo "db-host=$DB_HOST" >> $GITHUB_OUTPUT
+
+      - name: Create deployment package
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          DB_PASSWORD: ${{ steps.get-db-creds.outputs.db-password }}
+          DB_HOST: ${{ steps.get-db-creds.outputs.db-host }}
+        run: |
+          # Create docker-compose for production with ECR images
+          cat > app/docker-compose.prod.yml << COMPOSE
+          version: '3.8'
+          services:
+            backend:
+              image: ${ECR_REGISTRY}/${ECR_REPOSITORY_BACKEND}:latest
+              container_name: hbo-backend
+              restart: unless-stopped
+              ports:
+                - "8000:8000"
+              environment:
+                - DATABASE_URL=postgresql://hbo_admin:${DB_PASSWORD}@${DB_HOST}:5432/hbostream
+                - SECRET_KEY=\${SECRET_KEY}
+                - ENVIRONMENT=production
+              networks:
+                - hbo-network
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+          
+            frontend:
+              image: ${ECR_REGISTRY}/${ECR_REPOSITORY_FRONTEND}:latest
+              container_name: hbo-frontend
+              restart: unless-stopped
+              ports:
+                - "3000:80"
+              networks:
+                - hbo-network
+              depends_on:
+                - backend
+          
+            nginx:
+              build: ./nginx
+              container_name: hbo-nginx
+              restart: unless-stopped
+              ports:
+                - "80:80"
+              networks:
+                - hbo-network
+              depends_on:
+                - frontend
+                - backend
+          
+          networks:
+            hbo-network:
+              driver: bridge
+          COMPOSE
+          
+          # Create .env file
+          cat > app/.env << ENV
+          SECRET_KEY=$(openssl rand -hex 32)
+          DATABASE_URL=postgresql://hbo_admin:${DB_PASSWORD}@${DB_HOST}:5432/hbostream
+          ENV
+
+          # Package deployment
+          tar -czf deploy.tar.gz \
+            app/docker-compose.prod.yml \
+            app/.env \
+            app/nginx/
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          # Upload deployment package
+          scp -i ~/.ssh/id_rsa deploy.tar.gz ubuntu@${EC2_HOST}:~/
+          
+          # Deploy on EC2
+          ssh -i ~/.ssh/id_rsa ubuntu@${EC2_HOST} << 'DEPLOY'
+            set -e
+            
+            # Extract deployment
+            tar -xzf deploy.tar.gz
+            cd app
+            
+            # Login to ECR
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            
+            # Pull latest images
+            docker-compose -f docker-compose.prod.yml pull
+            
+            # Stop old containers
+            docker-compose down 2>/dev/null || true
+            
+            # Start new containers
+            docker-compose -f docker-compose.prod.yml up -d
+            
+            # Wait for health checks
+            echo "Waiting for services to be healthy..."
+            sleep 30
+            
+            # Verify deployment
+            if curl -sf http://localhost:8000/health > /dev/null; then
+              echo "✅ Backend is healthy"
+            else
+              echo "❌ Backend health check failed"
+              docker-compose -f docker-compose.prod.yml logs backend
+              exit 1
+            fi
+            
+            if curl -sf http://localhost:3000/health > /dev/null; then
+              echo "✅ Frontend is healthy"
+            else
+              echo "❌ Frontend health check failed"
+              exit 1
+            fi
+            
+            echo "✅ Deployment successful!"
+            docker-compose -f docker-compose.prod.yml ps
+          DEPLOY
+
+      - name: Post-deployment health check
+        run: |
+          echo "Waiting 10 seconds for ALB to detect new containers..."
+          sleep 10
+          
+          # You can add ALB health check here if needed
+          echo "✅ Deployment completed successfully"
+
+      - name: Notify deployment status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Deployment to production successful!"
+          else
+            echo "❌ Deployment failed. Check logs above."
+          fi

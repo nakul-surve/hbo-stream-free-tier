@@ -27,3 +27,5 @@ Thumbs.db
 
 # Secrets
 secrets/
+terraform/hbo-stream-app.tar.gz
+app/hbo-stream-app.tar.gz
