@@ -206,14 +206,9 @@ jobs:
       - name: Get database credentials
         id: get-db-creds
         run: |
-          DB_SECRET=$(aws secretsmanager get-secret-value \
-            --secret-id ${{ secrets.RDS_SECRET_ARN }} \
-            --query SecretString \
-            --output text)
-          
+          DB_SECRET=$(aws secretsmanager get-secret-value --secret-id ${{ secrets.RDS_SECRET_ARN }} --query SecretString --output text)
           DB_PASSWORD=$(echo $DB_SECRET | jq -r .password)
           DB_HOST=$(echo $DB_SECRET | jq -r .host)
-          
           echo "::add-mask::$DB_PASSWORD"
           echo "db-password=$DB_PASSWORD" >> $GITHUB_OUTPUT
           echo "db-host=$DB_HOST" >> $GITHUB_OUTPUT
