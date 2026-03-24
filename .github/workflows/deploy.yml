@@ -207,11 +207,15 @@ jobs:
         id: get-db-creds
         run: |
           DB_SECRET=$(aws secretsmanager get-secret-value --secret-id ${{ secrets.RDS_SECRET_ARN }} --query SecretString --output text)
-          DB_PASSWORD=$(echo $DB_SECRET | jq -r .password)
-          DB_HOST=$(echo $DB_SECRET | jq -r .host)
+          DB_PASSWORD=$(echo $DB_SECRET | jq -r '.password')
+          DB_HOST=$(echo $DB_SECRET | jq -r '.host')
+          DB_USER=$(echo $DB_SECRET | jq -r '.username')
+          DB_NAME=$(echo $DB_SECRET | jq -r '.dbname')
           echo "::add-mask::$DB_PASSWORD"
           echo "db-password=$DB_PASSWORD" >> $GITHUB_OUTPUT
           echo "db-host=$DB_HOST" >> $GITHUB_OUTPUT
+          echo "db-user=$DB_USER" >> $GITHUB_OUTPUT
+          echo "db-name=$DB_NAME" >> $GITHUB_OUTPUT
 
       - name: Create deployment package
         env:
@@ -219,6 +223,10 @@ jobs:
           DB_PASSWORD: ${{ steps.get-db-creds.outputs.db-password }}
           DB_HOST: ${{ steps.get-db-creds.outputs.db-host }}
         run: |
+          cat > app/.env << ENV
+          SECRET_KEY=$(openssl rand -hex 32)
+          DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}
+          ENV
           # Create docker-compose for production with ECR images
           cat > app/docker-compose.prod.yml << COMPOSE
           version: '3.8'
