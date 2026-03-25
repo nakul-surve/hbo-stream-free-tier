@@ -29,3 +29,5 @@ Thumbs.db
 secrets/
 terraform/hbo-stream-app.tar.gz
 app/hbo-stream-app.tar.gz
+app/frontend/node_modules/
+*.tar.gz

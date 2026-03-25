@@ -7,7 +7,11 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional
 import os
+import logging
 
+# Initialize logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 # Environment variables
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/dbname")
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
