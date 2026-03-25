@@ -196,3 +196,27 @@ async def seed_data(db: Session = Depends(get_db)):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# Prometheus metrics
+from metrics import setup_metrics, videos_count_gauge, active_users_gauge
+
+# Setup metrics endpoint
+setup_metrics(app)
+
+# Update videos count gauge on startup
+@app.on_event("startup")
+async def update_metrics():
+    try:
+        db = SessionLocal()
+        count = db.query(Video).count()
+        videos_count_gauge.set(count)
+        db.close()
+    except Exception as e:
+        logger.error(f"Failed to update metrics: {e}")
+
+# Endpoint to manually trigger metrics update
+@app.post("/api/update-metrics")
+async def update_metrics_endpoint(db: Session = Depends(get_db)):
+    count = db.query(Video).count()
+    videos_count_gauge.set(count)
+    return {"videos_total": count}

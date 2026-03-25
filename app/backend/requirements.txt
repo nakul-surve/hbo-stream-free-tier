@@ -10,3 +10,6 @@ python-multipart==0.0.6
 boto3==1.29.7
 python-dotenv==1.0.0
 alembic==1.12.1
+# Add to existing requirements.txt
+prometheus-client==0.19.0
+prometheus-fastapi-instrumentator==6.1.0
