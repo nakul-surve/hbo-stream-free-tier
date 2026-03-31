@@ -196,4 +196,4 @@ MIT License - See LICENSE file
 
 **⭐ If this project helped you learn, please give it a star!**
 
-Built with ❤️ for students learning DevOps
+
