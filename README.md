@@ -21,7 +21,7 @@ A production-quality video streaming platform built with AWS, optimized for Free
 
 ## 💰 Cost Breakdown
 
-**Free Tier (First 12 months):**
+**Free Tier (First 6 months):**
 - EC2 t3.micro: $0 (750 hrs/month free)
 - RDS db.t3.micro: $0 (750 hrs/month free)
 - ALB: $0 (750 hrs/month free)
